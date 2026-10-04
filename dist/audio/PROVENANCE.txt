@@ -1,0 +1,15 @@
+SequencePang2 audio sketch v1 — 2026-10-04
+
+This pack was created for the user's SequencePang2 project. Its note sequences,
+harmony, arrangement, synthesis code and rendered sounds were newly generated
+in this task. The sounds use mathematical oscillators, noise, envelopes and
+filters. No external recordings, third-party sample packs, SoundFonts or
+commercial music-generation-service outputs are embedded.
+
+The package is supplied as editable project material: rendered WAV/OGG,
+reference MP3, symbolic scores and the synthesis source. There is no included
+third-party audio asset requiring a separate sample-library license.
+
+The process was AI-assisted. This provenance statement is not a guarantee of
+copyright exclusivity or a legal determination of copyrightability.
+Runtime tools used: Python, NumPy, SciPy and FFmpeg. Those tools are not bundled.

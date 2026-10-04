@@ -2,7 +2,10 @@
 const CACHE_PREFIX = 'sequencepang2-shell-';
 const CACHE_NAME = CACHE_PREFIX + '__VERSION__';
 const ASSETS = __ASSETS__;
+const AUDIO_CACHE = CACHE_NAME + '-audio';
+const AUDIO_ASSETS = __AUDIO_ASSETS__;
 const BASE = new URL('./', self.location.href);
+const AUDIO_URLS = new Set(AUDIO_ASSETS.map(path => new URL(path, BASE).href));
 const ASSET_URLS = new Set(ASSETS.map(path => new URL(path, BASE).href));
 
 self.addEventListener('install', event => {
@@ -21,7 +24,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     for (const key of await caches.keys()) {
-      if (key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME) await caches.delete(key);
+      if (key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME && key !== AUDIO_CACHE) await caches.delete(key);
     }
     await self.clients.claim();
   })());
@@ -38,6 +41,18 @@ self.addEventListener('fetch', event => {
   url.search = '';
   const isHome = url.pathname === BASE.pathname || url.href === new URL('index.html', BASE).href;
   const key = isHome && event.request.mode === 'navigate' ? new URL('index.html', BASE).href : url.href;
+  if (AUDIO_URLS.has(key)) {
+    // Optional audio is saved only as it is used, never a prerequisite for the
+    // offline game install. A quota/network failure must not break the game.
+    event.respondWith((async () => {
+      let cache;
+      try { cache = await caches.open(AUDIO_CACHE); const saved = await cache.match(key); if (saved) return saved; } catch {}
+      const response = await fetch(event.request);
+      if (response.ok && cache) { try { await cache.put(key, response.clone()); } catch {} }
+      return response;
+    })());
+    return;
+  }
   if (!ASSET_URLS.has(key)) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);

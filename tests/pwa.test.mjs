@@ -29,7 +29,8 @@ function worker() {
       const store = stores.get(name);
       return {
         async addAll(requests) { for (const request of requests) store.set(key(request), await fetch(request)); },
-        async match(request) { return store.get(key(request))?.clone(); }
+        async match(request) { return store.get(key(request))?.clone(); },
+        async put(request, response) { store.set(key(request), response); }
       };
     },
     async keys() { return [...stores.keys()]; },
@@ -123,4 +124,21 @@ test('the worker does not intercept external traffic, writes or unknown paths', 
     {url:origin+'app.js',method:'POST',mode:'cors'},
     {url:origin+'missing',method:'GET',mode:'navigate'}
   ]) assert.equal(await w.emit('fetch', {request}), undefined);
+});
+
+
+test('audio is optional at install, then cached for offline use without decoding or autoplay', async () => {
+  const w = worker();
+  w.state.failAsset = 'audio/music/01_mango_garden_menu.ogg';
+  await w.emit('install');
+  assert.equal(w.stores.size, 1);
+  w.state.failAsset = null;
+  const request = {url:origin + 'audio/music/01_mango_garden_menu.ogg',method:'GET',mode:'cors'};
+  const online = await w.emit('fetch', {request});
+  const bytes = await online.arrayBuffer();
+  assert.ok(bytes.byteLength > 100000);
+  await w.emit('activate');
+  w.state.online = false;
+  const offline = await w.emit('fetch', {request});
+  assert.deepEqual(await offline.arrayBuffer(), bytes);
 });
