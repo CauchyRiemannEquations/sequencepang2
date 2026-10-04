@@ -22,22 +22,14 @@ try { hintStorage = localStorage; } catch {}
 let hints = new MangoHints(hintStorage, levels);
 let visibleHint = [];
 try { progress = readProgress(localStorage, levels); } catch {}
-const gameAudio = new GameAudio({ storage: hintStorage, onChange: renderAudioButton });
+const gameAudio = new GameAudio({ storage: hintStorage });
 function persistRun() { try { saveRun(localStorage, session); } catch {} }
-function renderAudioButton() {
-  const p = gameAudio.preferences, enabled = p.master && (p.bgm || p.sfx);
-  $('home-audio').textContent = enabled ? '♫ 소리 켜짐' : '♫ 소리 켜기';
-  $('home-audio').setAttribute('aria-pressed', String(enabled));
-}
 // The capture phase unlocks Web Audio inside a real input, before game handlers.
 function unlockAudio(event) { if (event.isTrusted) void gameAudio.unlock(); }
 document.addEventListener('pointerdown', unlockAudio, { capture: true });
 document.addEventListener('keydown', unlockAudio, { capture: true });
 document.addEventListener('click', unlockAudio, { capture: true });
-document.addEventListener('click', event => {
-  const button = event.target.closest('button');
-  if (button && !button.disabled && !button.matches('[data-i], #ask-mango, #result-hint, #restart-with-hint')) void gameAudio.play('ui_tap');
-});
+
 
 function message(text, good = false) {
   $('feedback').removeAttribute('aria-label');
@@ -62,7 +54,6 @@ function refreshRelease() {
 
 function showHome() {
   gameAudio.setScene('menu');
-  renderAudioButton();
   refreshRelease();
   stopHintMotion();
   visibleHint = [];
@@ -373,7 +364,7 @@ function settings() {
   show(`<h2 id="modal-title">설정</h2>
     <div class="settings-list">
       <button id="settings-master" aria-pressed="${p.master}">전체 소리 <span>${p.master ? '켜짐' : '음소거'}</span></button>
-      <button id="settings-bgm" aria-pressed="${p.bgm}">배경음악 <span>${p.bgm ? '켜짐' : '꺼짐'}</span></button>
+      <button id="settings-bgm" aria-pressed="${p.bgm}">메인 배경음악 <span>${p.bgm ? '켜짐' : '꺼짐'}</span></button>
       <label class="audio-volume" for="bgm-volume">음악 음량 <output id="bgm-value">${Math.round(p.bgmVolume * 100)}%</output><input id="bgm-volume" type="range" min="0" max="100" step="5" value="${p.bgmVolume * 100}"></label>
       <button id="settings-sound" aria-pressed="${p.sfx}">효과음 <span>${p.sfx ? '켜짐' : '꺼짐'}</span></button>
       <label class="audio-volume" for="sfx-volume">효과음 음량 <output id="sfx-value">${Math.round(p.sfxVolume * 100)}%</output><input id="sfx-volume" type="range" min="0" max="100" step="5" value="${p.sfxVolume * 100}"></label>
@@ -513,11 +504,6 @@ $('start-game').onclick = () => {
 };
 $('game-settings').onclick = settings;
 $('home-settings').onclick = settings;
-$('home-audio').onclick = () => {
-  const p = gameAudio.preferences;
-  gameAudio.setPreferences(p.master && (p.bgm || p.sfx) ? { master: false } :
-    (p.bgm || p.sfx) ? { master: true } : { master: true, bgm: true, sfx: true });
-};
 $('game-home').onclick = showHome;
 $('coming-home').onclick = showHome;
 $('close-modal').onclick = closeModal;

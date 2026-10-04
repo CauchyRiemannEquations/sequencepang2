@@ -5,7 +5,7 @@ export const music = {
   play: { file: '02_constellation_path_play', duration: 76.8 },
 };
 const jingles = { clear: '03_stage_clear', retry: '04_gentle_retry', complete: '05_all_stars_complete' };
-const effects = ['ui_tap', 'invalid_soft', 'sequence_pop', 'star_collect', 'mango_hint', ...[1,2,3,4,5].map(n => `select_${n}`)];
+const effects = ['invalid_soft', 'sequence_pop', 'star_collect', 'mango_hint', ...[1,2,3,4,5].map(n => `select_${n}`)];
 const clamp = (value, fallback) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
 export function readAudioPreferences(storage) {
   let legacy = false, saved;
@@ -90,7 +90,7 @@ export class GameAudio {
     const p = this.preferences;
     this.ramp(this.masterGain.gain, p.master ? .8 : 0, duration);
     this.ramp(this.effectsGain.gain, p.sfx ? p.sfxVolume : 0, duration);
-    this.ramp(this.musicGain.gain, p.bgm ? p.bgmVolume * (this.jingle ? .2 : this.modal ? .55 : 1) : 0, duration);
+    this.ramp(this.musicGain.gain, this.scene === 'menu' && p.bgm ? p.bgmVolume * (this.jingle ? .2 : this.modal ? .55 : 1) : 0, duration);
   }
   setPreferences(patch) {
     this.preferences = { ...this.preferences, ...patch };
@@ -108,16 +108,24 @@ export class GameAudio {
     if (!music[scene]) return;
     this.stopTransient();
     if (scene !== this.scene) { this.scene = scene; this.revision++; }
+    if (scene === 'play') {
+      // Puzzle audio belongs to the melodic tile notes. Stop even a retiring
+      // menu source now; delayed loads/unlocks may not bring it back.
+      this.stopMusic(0);
+      this.updateGains(0);
+      return;
+    }
+    this.updateGains();
     void this.syncMusic();
   }
   setModal(open) { this.modal = open; this.updateGains(); }
   async syncMusic() {
     const p = this.preferences;
-    if (!this.ready || !p.bgm || !p.bgmVolume) return;
+    if (this.scene !== 'menu' || !this.ready || !p.bgm || !p.bgmVolume) return;
     const scene = this.scene, revision = this.revision;
     if (this.currentLoop?.scene === scene) return;
     const buffer = await this.load(scene);
-    if (!buffer || revision !== this.revision || !this.ready || !this.preferences.bgm || this.currentLoop?.scene === scene) return;
+    if (!buffer || revision !== this.revision || this.scene !== 'menu' || !this.ready || !this.preferences.bgm || this.currentLoop?.scene === scene) return;
     const time = this.context.currentTime;
     this.musicEpoch ??= time;
     const offset = (time - this.musicEpoch) % music[scene].duration;
@@ -134,14 +142,14 @@ export class GameAudio {
     this.currentLoop = entry; source.start(time, offset);
   }
   retire(entry, duration = .1) {
-    if (entry.stopping) return;
+    if (entry.stopping && duration > 0) return;
     entry.stopping = true;
     this.ramp(entry.gain.gain, 0, duration);
     try { entry.source.stop(this.context.currentTime + duration); } catch {}
   }
-  stopMusic() {
+  stopMusic(duration = .1) {
     this.revision++;
-    for (const entry of this.loops) this.retire(entry);
+    for (const entry of this.loops) this.retire(entry, duration);
     this.currentLoop = null;
   }
   stopTransient() {
