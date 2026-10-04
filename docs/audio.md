@@ -1,12 +1,13 @@
 # SequencePang2 game audio
 
-Integrated 2026-10-04 from the original SequencePang2 audio sketch. The puzzle rules,
+Integrated 2026-10-04 from the original SequencePang2 audio sketch; revised the same day
+to keep gameplay free of background music and generic button beeps. The puzzle rules,
 100 stage layouts, progress keys, and release schedule are unchanged.
 
 ## Player controls
 
-- The home screen’s **♫ 소리 켜기** explicitly enables music and effects. The game
-  remains silent until input; a saved legacy effects preference does not enable BGM.
+- Settings are the only sound controls; the separate home sound button is removed.
+  The game remains silent until input; a saved legacy effects preference does not enable BGM.
 - Settings have master mute, separate BGM/effects switches, and individual volumes.
   `sequencepang2-audio-v1` stores the new preferences. `sequencepang2-sound` is still
   read/written for effects compatibility, with `sequenstar-sound` as legacy fallback.
@@ -19,23 +20,29 @@ Integrated 2026-10-04 from the original SequencePang2 audio sketch. The puzzle r
 | Event | Asset |
 |---|---|
 | Home/help/completion background | Mango Garden, 38.4s loop |
-| Puzzle / next stage / retry | Constellation Path, 76.8s loop |
+| Puzzle / next stage / retry / game settings | No BGM |
 | Tile selection | select_1 … select_5, 55ms minimum interval |
 | Invalid committed path | invalid_soft |
 | Nonterminal valid removal | sequence_pop |
 | Stars removed during nonterminal move | star_collect |
 | Hint actually revealed | mango_hint |
-| Menu action | ui_tap |
+| Menu/button action | No generic click effect |
 | Stage clear | 03_stage_clear, 2.8s |
 | Failed stage | 04_gentle_retry, 2.1s |
 | Last available stage clear | 05_all_stars_complete, 6.2s |
 
-`dist/audio.js` owns one AudioContext and separates music/effects buses. Both music
-loops share a 100 BPM clock; menu/play transitions preserve harmonic position and
-fade over 0.6 seconds. Retry and next stage retain the current music source. Result
-jingles take priority over other one-shots and duck music to 20%; ordinary dialogs
-reduce music to 55%. Navigation cancels stale loads and transient sounds. Short
-sounds are capped at three simultaneous voices and late effects are dropped.
+`dist/audio.js` owns one AudioContext and separates music/effects buses. Entering
+play immediately stops every music source, including a loop already fading out,
+and invalidates pending menu loads. Volume changes, input unlocks, and background
+resume while in play cannot start music. Returning home may fade in the menu track
+if its saved preference allows it. Result jingles and melodic selection notes remain
+available in gameplay; jingles take priority over other one-shots. Ordinary menu
+dialogs reduce menu music to 55%. Navigation cancels stale loads and transient sounds.
+Short sounds are capped at three simultaneous voices and late effects are dropped.
+
+The supplied play BGM and ui_tap files remain archived assets, but are neither
+selected nor preloaded by the game. Removing the home control does not alter any
+saved sound or game-progress settings.
 
 ## Formats and installed app
 

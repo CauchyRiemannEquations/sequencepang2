@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { GameAudio, audioKey, music, readAudioPreferences } from '../dist/audio.js';
 
 const deferred = () => {
@@ -100,7 +101,7 @@ test('construction, navigation and a silent unlock do not create an audio contex
   const fixture = setup({ store: storage() });
   fixture.audio.setScene('play');
   assert.equal(await fixture.audio.unlock(), false);
-  assert.equal(await fixture.audio.play('ui_tap'), false);
+  assert.equal(await fixture.audio.play('sequence_pop'), false);
   assert.equal(fixture.created, 0);
   assert.deepEqual(fixture.requests, []);
 });
@@ -114,7 +115,8 @@ test('unlock invokes resume synchronously in the input stack, reuses one context
   assert.equal(fixture.created, 1);
   assert.equal(fixture.context.state, 'running');
   assert.equal(fixture.requests.filter(path => path.includes('/music/')).length, 0);
-  assert.equal(fixture.requests.length, 13);
+  assert.equal(fixture.requests.length, 12);
+  assert.equal(fixture.requests.some(path => path.includes('ui_tap')), false);
 });
 
 test('unavailable or rejected AudioContext never blocks the caller', async () => {
@@ -122,7 +124,7 @@ test('unavailable or rejected AudioContext never blocks the caller', async () =>
   assert.equal(await audio.unlock(), false);
   const fixture = setup(); fixture.context.resume = async () => { throw Error('gesture required'); };
   assert.equal(await fixture.audio.unlock(), false);
-  assert.equal(await fixture.audio.play('ui_tap'), false);
+  assert.equal(await fixture.audio.play('sequence_pop'), false);
   assert.deepEqual(fixture.requests, []);
 });
 
@@ -153,35 +155,109 @@ test('network failures resolve silently and a later load retries rather than cac
   assert.equal(fixture.requests.length, 3);
 });
 
-test('rapid scene changes ignore stale loads and leave only the latest loop after the crossfade', async () => {
-  const gates = new Map();
+test('entering gameplay cancels pending menu music and returning home permits the cached menu loop', async () => {
+  const gate = deferred();
   const fixture = setup({ preferences: { master: true, bgm: true, sfx: false }, fetcher: async url => {
-    const gate = deferred(); gates.set(url.pathname.includes('01_') ? 'menu' : 'play', gate);
     await gate.promise;
     return { ok: true, arrayBuffer: async () => new TextEncoder().encode(url.pathname).buffer };
   } });
   await fixture.audio.unlock();
   fixture.audio.setScene('play');
-  gates.get('menu').resolve(); await settle();
+  gate.resolve(); await settle();
   assert.equal(fixture.context.sources.length, 0);
-  gates.get('play').resolve(); await settle();
-  assert.equal(fixture.audio.currentLoop.scene, 'play');
+  assert.equal(fixture.audio.currentLoop, null);
+  assert.equal(fixture.audio.loops.size, 0);
+  assert.equal(fixture.requests.length, 1);
+  assert.ok(fixture.requests[0].includes(music.menu.file));
   fixture.audio.setScene('menu'); await settle();
   assert.equal(fixture.audio.currentLoop.scene, 'menu');
-  assert.equal(fixture.audio.loops.size, 2);
-  fixture.context.advance(1);
   assert.equal(fixture.audio.loops.size, 1);
-  assert.equal(fixture.context.sources[0].disconnected, true);
+  assert.equal(fixture.requests.length, 1);
 });
 
-test('both music scenes loop at their exact declared duration with a shared elapsed-time offset', async () => {
+test('entering gameplay immediately stops menu BGM while retaining the saved music preference', async () => {
   const { audio, context } = await ready({ preferences: { master: true, bgm: true, sfx: false } });
+  const source = audio.currentLoop.source;
+  assert.equal(source.loopEnd, music.menu.duration);
+  assert.equal(source.loop, true);
+  context.advance(5);
+  audio.setScene('play');
+  assert.equal(audio.currentLoop, null);
+  assert.ok(source.stoppedAt <= context.currentTime, 'music must stop before the gameplay scene returns');
+  assert.equal(audio.musicGain.gain.value, 0);
+  assert.equal(audio.preferences.bgm, true);
+  await settle();
+  assert.equal(audio.loops.size, 0);
+  assert.equal(source.disconnected, true);
+  assert.equal(context.sources.length, 1);
+  context.advance(2);
+  audio.setScene('menu'); await settle();
+  assert.equal(audio.currentLoop.scene, 'menu');
   assert.equal(audio.currentLoop.source.loopEnd, music.menu.duration);
   assert.equal(audio.currentLoop.source.loop, true);
-  context.advance(5);
-  audio.setScene('play'); await settle();
-  assert.equal(audio.currentLoop.source.loopEnd, music.play.duration);
-  assert.equal(audio.currentLoop.source.started.offset, 5);
+  assert.equal(audio.loops.size, 1);
+});
+
+test('gameplay also stops older menu sources that are already fading out', async () => {
+  const { audio, context } = await ready({ preferences: { master: true, bgm: true, sfx: true } });
+  const oldSource = audio.currentLoop.source;
+  audio.setPreferences({ bgm: false }); await settle();
+  audio.setPreferences({ bgm: true }); await settle();
+  assert.notEqual(audio.currentLoop.source, oldSource);
+  audio.setScene('play');
+  for (const source of context.sources.filter(source => source.loop)) {
+    assert.ok(source.stoppedAt <= context.currentTime, 'all music sources, including fading ones, must stop immediately');
+  }
+  await settle();
+  assert.equal(audio.loops.size, 0);
+  assert.equal(audio.currentLoop, null);
+});
+
+test('gameplay never loads or starts BGM on unlock, preference changes, modal changes or background resume', async () => {
+  for (const sfx of [false, true]) {
+    const { audio, context, requests } = setup({ preferences: { master: true, bgm: true, sfx } });
+    audio.setScene('play');
+    await audio.unlock(); await settle();
+    audio.setPreferences({ bgmVolume: .4 }); await settle();
+    audio.setPreferences({ bgm: false }); await settle();
+    audio.setPreferences({ bgm: true, bgmVolume: 1 }); await settle();
+    audio.setPreferences({ master: false }); await settle();
+    audio.setPreferences({ master: true }); await settle();
+    audio.setModal(true); audio.setModal(false);
+    audio.setHidden(true); await settle();
+    audio.setHidden(false); await settle();
+    await audio.unlock(); await settle();
+    assert.equal(audio.scene, 'play');
+    assert.equal(audio.currentLoop ?? null, null);
+    assert.equal(audio.loops.size, 0);
+    assert.equal(audio.musicGain?.gain.value ?? 0, 0);
+    assert.equal(context.sources.filter(source => source.loop).length, 0);
+    assert.deepEqual(requests.filter(path => path.includes('/music/')), []);
+  }
+});
+
+test('a resume completing after navigation into gameplay cannot start BGM', async () => {
+  const resumeGate = deferred();
+  const { audio, context, requests } = setup({
+    preferences: { master: true, bgm: true, sfx: true }, contextOptions: { resumeGate },
+  });
+  const unlocking = audio.unlock();
+  audio.setScene('play'); resumeGate.resolve();
+  await unlocking; await settle();
+  assert.equal(context.sources.filter(source => source.loop).length, 0);
+  assert.deepEqual(requests.filter(path => path.includes('/music/')), []);
+});
+
+test('returning to menu respects music, master and volume preferences', async () => {
+  for (const muted of [{ bgm: false }, { master: false }, { bgmVolume: 0 }]) {
+    const { audio, context } = await ready({ preferences: { master: true, bgm: true, sfx: true, ...muted } });
+    audio.setScene('play'); await settle();
+    audio.setScene('menu'); await settle();
+    assert.equal(context.sources.filter(source => source.loop).length, 0);
+    audio.setPreferences({ master: true, bgm: true, bgmVolume: .65 }); await settle();
+    assert.equal(audio.currentLoop.scene, 'menu');
+    assert.equal(audio.loops.size, 1);
+  }
 });
 
 test('muting while a loop is loading prevents any late music source', async () => {
@@ -202,35 +278,73 @@ test('selection sounds throttle fast drags and transient polyphony is bounded', 
   assert.equal(await audio.select(2), false);
   clock.value = 60;
   assert.equal(await audio.select(2), true);
-  await audio.play('ui_tap'); await audio.play('sequence_pop'); await settle();
+  await audio.play('star_collect'); await audio.play('sequence_pop'); await settle();
   assert.equal(audio.voices.size, 3);
   assert.equal(context.sources.length, 4);
   assert.equal(context.sources[0].disconnected, true);
 });
 
+test('all five melodic tile notes and the existing game effects remain playable in gameplay', async () => {
+  const { audio, context, clock } = await ready({ preferences: { master: true, bgm: true, sfx: true } });
+  audio.setScene('play'); await settle();
+  for (let note = 1; note <= 5; note++) {
+    clock.value = note * 60;
+    assert.equal(await audio.select(note), true);
+    assert.ok(context.sources.at(-1).buffer.name.endsWith(`/select_${note}.wav`));
+    assert.notEqual(context.sources.at(-1).loop, true);
+  }
+  for (const effect of ['invalid_soft', 'sequence_pop', 'star_collect', 'mango_hint']) {
+    assert.equal(await audio.play(effect), true);
+    assert.ok(context.sources.at(-1).buffer.name.endsWith(`/${effect}.wav`));
+  }
+  assert.equal(audio.currentLoop, null);
+  assert.equal(audio.musicGain.gain.value, 0);
+  assert.equal(await audio.play('ui_tap'), false);
+});
+
+test('clear, retry and completion jingles remain audible in gameplay without reactivating BGM', async () => {
+  const { audio, context } = await ready({ preferences: { master: true, bgm: true, sfx: true } });
+  audio.setScene('play'); await settle();
+  for (const [won, complete, file] of [
+    [true, false, '03_stage_clear.wav'],
+    [false, false, '04_gentle_retry.wav'],
+    [true, true, '05_all_stars_complete.wav'],
+  ]) {
+    assert.equal(await audio.result(won, complete), true);
+    assert.ok(audio.jingle.source.buffer.name.endsWith(file));
+    assert.equal(audio.jingle.gain.gain.value, .85);
+    assert.equal(audio.effectsGain.gain.value, audio.preferences.sfxVolume);
+    assert.equal(audio.musicGain.gain.value, 0);
+    assert.equal(audio.currentLoop, null);
+    audio.jingle.source.finish();
+    assert.equal(audio.musicGain.gain.value, 0);
+  }
+  assert.equal(context.sources.filter(source => source.loop && !source.ended).length, 0);
+});
+
 test('late effects drop instead of playing out of time, and a scene change cancels pending effects', async () => {
   const fixture = await ready();
-  fixture.audio.buffers.delete('ui_tap');
+  fixture.audio.buffers.delete('sequence_pop');
   let gate = deferred();
   fixture.audio.fetcher = async () => { await gate.promise; return { ok: true, arrayBuffer: async () => new ArrayBuffer(1) }; };
-  const late = fixture.audio.play('ui_tap'); fixture.clock.value = 251; gate.resolve();
+  const late = fixture.audio.play('sequence_pop'); fixture.clock.value = 251; gate.resolve();
   assert.equal(await late, false);
-  fixture.audio.buffers.delete('ui_tap'); gate = deferred();
-  const cancelled = fixture.audio.play('ui_tap'); fixture.audio.setScene('play'); gate.resolve();
+  fixture.audio.buffers.delete('sequence_pop'); gate = deferred();
+  const cancelled = fixture.audio.play('sequence_pop'); fixture.audio.setScene('play'); gate.resolve();
   assert.equal(await cancelled, false);
   assert.equal(fixture.context.sources.length, 0);
 });
 
-test('a jingle replaces effects, ducks music, suppresses taps and restores the previous modal level', async () => {
+test('a menu jingle replaces effects, ducks music, suppresses other effects and restores the previous modal level', async () => {
   const { audio } = await ready({ preferences: { master: true, bgm: true, sfx: true, bgmVolume: .6, sfxVolume: .7 } });
   audio.setModal(true);
   assert.equal(audio.musicGain.gain.value, .6 * .55);
-  await audio.play('ui_tap');
+  await audio.play('sequence_pop');
   assert.equal(await audio.result(true), true);
   await settle();
   assert.equal(audio.voices.size, 1);
   assert.equal(audio.musicGain.gain.value, .6 * .2);
-  assert.equal(await audio.play('ui_tap'), false);
+  assert.equal(await audio.play('sequence_pop'), false);
   audio.jingle.source.finish();
   assert.equal(audio.jingle, null);
   assert.equal(audio.musicGain.gain.value, .6 * .55);
@@ -277,7 +391,7 @@ test('background suspends audio, cancels transients and resumes the same loop wi
   assert.equal(context.state, 'suspended');
   assert.equal(audio.voices.size, 0);
   assert.equal(audio.ready, false);
-  assert.equal(await audio.play('ui_tap'), false);
+  assert.equal(await audio.play('sequence_pop'), false);
   audio.setHidden(false); await settle();
   assert.equal(context.state, 'running');
   assert.equal(audio.currentLoop, loop);
@@ -298,7 +412,7 @@ test('a resume completing while hidden immediately re-suspends without loading o
 
 test('dispose stops voices and late decoding cannot retain buffers or restart audio', async () => {
   const fixture = await ready({ preferences: { master: true, bgm: true, sfx: true } });
-  await fixture.audio.play('ui_tap');
+  await fixture.audio.play('sequence_pop');
   fixture.audio.buffers.delete('menu');
   const gate = deferred(); fixture.context.decode = async () => { await gate.promise; return { name: 'late' }; };
   const late = fixture.audio.load('menu'); await settle();
@@ -313,8 +427,31 @@ test('dispose stops voices and late decoding cannot retain buffers or restart au
   assert.equal(await fixture.audio.unlock(), false);
 });
 
+test('audio controls exist only in Settings and app wiring preserves game sounds without generic button beeps', async () => {
+  const [app, html, css] = await Promise.all(['app.js', 'index.html', 'style.css'].map(file =>
+    readFile(new URL(`../dist/${file}`, import.meta.url), 'utf8')));
+  for (const source of [app, html, css]) assert.doesNotMatch(source, /home-audio/);
+  assert.doesNotMatch(html, /audio-button/);
+  assert.doesNotMatch(app, /ui_tap/);
+  assert.match(html, /id="home-settings"/);
+  assert.match(html, /id="game-settings"/);
+  const settings = app.match(/function settings\(\)\s*\{[\s\S]*?(?=\nfunction\s)/)?.[0];
+  assert.ok(settings, 'Settings contains the audio preference controls');
+  for (const id of ['settings-master', 'settings-bgm', 'settings-sound', 'bgm-volume', 'sfx-volume']) {
+    assert.ok(settings.includes(`id="${id}"`), id);
+  }
+  assert.match(settings, /gameAudio\.setPreferences\(/);
+  assert.doesNotMatch(app.replace(settings, ''), /gameAudio\.setPreferences\(/);
+  assert.match(app, /gameAudio\.setScene\('play'\)/);
+  assert.match(app, /gameAudio\.select\(selected\.length\)/);
+  assert.match(app, /gameAudio\.result\(won\)/);
+  assert.match(app, /gameAudio\.result\(true, true\)/);
+  for (const effect of ['invalid_soft', 'sequence_pop', 'star_collect', 'mango_hint']) {
+    assert.ok(app.includes(`gameAudio.play('${effect}')`), effect);
+  }
+});
+
 test('shipped WAV compatibility tracks keep exact stereo loop durations', async () => {
-  const { readFile } = await import('node:fs/promises');
   for (const [scene, spec] of Object.entries(music)) {
     const bytes = await readFile(new URL(`../dist/audio/music/${spec.file}.wav`, import.meta.url));
     assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
