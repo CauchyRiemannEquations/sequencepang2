@@ -103,3 +103,11 @@ dialog{color:var(--cream);background:linear-gradient(145deg,#13513e,#042d23);bor
 .audio-volume{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;padding:0 14px 8px;color:#c5d7b8;font-size:14px}
 .audio-volume output{color:#ffdc67;font-family:'Outfit',sans-serif}
 .audio-volume input{width:100%;height:32px;accent-color:#ffdc67;cursor:pointer}
+
+/* Keep controls touchable at every width, without changing the mango artwork. */
+.home-tools{height:auto;min-height:44px}
+.home-tools .icon,.game-header .icon{width:44px;height:44px;min-width:44px;min-height:44px}
+.install-button,.help-tabs button,.audio-volume input{min-height:44px}
+.home-links{flex-wrap:wrap;gap:0}
+.home-links .audio-settings-button{gap:5px}
+.audio-settings-button svg{flex:none}

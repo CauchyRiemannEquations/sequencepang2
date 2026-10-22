@@ -427,15 +427,16 @@ test('dispose stops voices and late decoding cannot retain buffers or restart au
   assert.equal(await fixture.audio.unlock(), false);
 });
 
-test('audio controls exist only in Settings and app wiring preserves game sounds without generic button beeps', async () => {
+test('home audio shortcut opens the shared settings and preserves game sounds without generic button beeps', async () => {
   const [app, html, css] = await Promise.all(['app.js', 'index.html', 'style.css'].map(file =>
     readFile(new URL(`../dist/${file}`, import.meta.url), 'utf8')));
-  for (const source of [app, html, css]) assert.doesNotMatch(source, /home-audio/);
+  assert.match(html, /id="home-audio"[^>]*aria-haspopup="dialog"/);
+  assert.match(app, /\$\('home-audio'\)\.onclick = \(\) => settings\(true\)/);
   assert.doesNotMatch(html, /audio-button/);
   assert.doesNotMatch(app, /ui_tap/);
   assert.match(html, /id="home-settings"/);
   assert.match(html, /id="game-settings"/);
-  const settings = app.match(/function settings\(\)\s*\{[\s\S]*?(?=\nfunction\s)/)?.[0];
+  const settings = app.match(/function settings\(audioOnly = false\)\s*\{[\s\S]*?(?=\nfunction\s)/)?.[0];
   assert.ok(settings, 'Settings contains the audio preference controls');
   for (const id of ['settings-master', 'settings-bgm', 'settings-sound', 'bgm-volume', 'sfx-volume']) {
     assert.ok(settings.includes(`id="${id}"`), id);

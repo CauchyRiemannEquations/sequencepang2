@@ -1,7 +1,7 @@
 import { GameAudio } from './audio.js';
 import { kind, adjacent, stars } from './engine.js';
 import { levels as allLevels } from './levels.js';
-import { playableLevels, hundredStageRelease } from './release.js';
+import { playableLevels, hundredStageRelease, showHundredStageNotice } from './release.js';
 import { GameSession } from './session.js';
 import { readProgress, saveProgress, restoreRun, saveRun, nextStageIndex, resetProgress, campaignComplete } from './progress.js';
 import { dragTargets, dragHits } from './drag-hit.js';
@@ -65,7 +65,7 @@ function showHome() {
   $('coming-soon').hidden = true;
   $('home-cleared').textContent = levels.filter(level => progress[level.key] === true).length;
   $('home-total').textContent = `/ ${levels.length}`;
-  $('release-note').hidden = levels.length < 100;
+  $('release-note').hidden = levels.length < 100 || !showHundredStageNotice();
   const next = ['playing', 'failed'].includes(session.status) ? session.index : nextStageIndex(levels, progress);
   $('resume-note').textContent = session.status === 'playing' || next > 0 ? `STAGE ${String(next + 1).padStart(2, '0')}에서 이어서` : '첫 번째 별을 만나러 가요';
   if (campaignComplete(levels, progress)) $('resume-note').textContent = '모든 스테이지를 클리어했어요!';
@@ -358,21 +358,22 @@ function showResult(won) {
   if ($('result-hint')) $('result-hint').onclick = revealHint;
 }
 
-function settings() {
+function settings(audioOnly = false) {
+  const soundOnly = audioOnly === true;
   const playing = !$('game').hidden;
   const p = gameAudio.preferences;
-  show(`<h2 id="modal-title">설정</h2>
+  show(`<h2 id="modal-title">${soundOnly ? '소리 설정' : '설정'}</h2>
     <div class="settings-list">
       <button id="settings-master" aria-pressed="${p.master}">전체 소리 <span>${p.master ? '켜짐' : '음소거'}</span></button>
       <button id="settings-bgm" aria-pressed="${p.bgm}">메인 배경음악 <span>${p.bgm ? '켜짐' : '꺼짐'}</span></button>
       <label class="audio-volume" for="bgm-volume">음악 음량 <output id="bgm-value">${Math.round(p.bgmVolume * 100)}%</output><input id="bgm-volume" type="range" min="0" max="100" step="5" value="${p.bgmVolume * 100}"></label>
       <button id="settings-sound" aria-pressed="${p.sfx}">효과음 <span>${p.sfx ? '켜짐' : '꺼짐'}</span></button>
       <label class="audio-volume" for="sfx-volume">효과음 음량 <output id="sfx-value">${Math.round(p.sfxVolume * 100)}%</output><input id="sfx-volume" type="range" min="0" max="100" step="5" value="${p.sfxVolume * 100}"></label>
-      ${playing ? '<button id="settings-restart">다시하기 <span>↻</span></button><button id="settings-home">메인화면 <span>⌂</span></button>' : ''}
-      <button id="settings-reset" class="reset-setting">게임 초기화 <span>↺</span></button>
-    </div>${playing ? '<p class="settings-note">스테이지를 기억해요. 나갔다 돌아오면 그 판을 처음부터 시작해요.</p>' : ''}`);
+      ${playing && !soundOnly ? '<button id="settings-restart">다시하기 <span>↻</span></button><button id="settings-home">메인화면 <span>⌂</span></button>' : ''}
+      ${soundOnly ? '' : '<button id="settings-reset" class="reset-setting">게임 초기화 <span>↺</span></button>'}
+    </div>${playing && !soundOnly ? '<p class="settings-note">스테이지를 기억해요. 나갔다 돌아오면 그 판을 처음부터 시작해요.</p>' : ''}`);
   for (const [id, key] of [['settings-master', 'master'], ['settings-bgm', 'bgm'], ['settings-sound', 'sfx']]) {
-    $(id).onclick = () => { gameAudio.setPreferences({ [key]: !gameAudio.preferences[key] }); settings(); $(id).focus(); };
+    $(id).onclick = () => { gameAudio.setPreferences({ [key]: !gameAudio.preferences[key] }); settings(soundOnly); $(id).focus(); };
   }
   for (const key of ['bgm', 'sfx']) {
     $(key + '-volume').oninput = event => {
@@ -381,11 +382,11 @@ function settings() {
       $(key + '-value').textContent = value + '%';
     };
   }
-  if (playing) {
+  if (playing && !soundOnly) {
     $('settings-restart').onclick = () => { session.restart(); persistRun(); showGame(); message('처음부터 다시 시작해요'); };
     $('settings-home').onclick = showHome;
   }
-  $('settings-reset').onclick = confirmReset;
+  if (!soundOnly) $('settings-reset').onclick = confirmReset;
 }
 
 function confirmReset() {
@@ -504,6 +505,7 @@ $('start-game').onclick = () => {
 };
 $('game-settings').onclick = settings;
 $('home-settings').onclick = settings;
+$('home-audio').onclick = () => settings(true);
 $('game-home').onclick = showHome;
 $('coming-home').onclick = showHome;
 $('close-modal').onclick = closeModal;
