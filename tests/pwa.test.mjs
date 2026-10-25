@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../dist/', import.meta.url);
@@ -8,8 +9,8 @@ const code = await readFile(new URL('sw.js', root), 'utf8');
 const origin = 'https://game.example/';
 const hosting = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url)));
 
-function worker() {
-  const handlers = {}, stores = new Map(), state = { online: true, claimed: false, skipped: false, failAsset: null };
+function worker(source = code, stores = new Map()) {
+  const handlers = {}, state = { online: true, claimed: false, skipped: false, failAsset: null };
   const key = value => typeof value === 'string' ? value : value.url;
   const fetch = async request => {
     if (!state.online) throw Error('offline');
@@ -36,8 +37,8 @@ function worker() {
     async keys() { return [...stores.keys()]; },
     async delete(name) { return stores.delete(name); }
   };
-  vm.runInNewContext(code, {
-    URL, Request, caches, fetch,
+  vm.runInNewContext(source, {
+    URL, Request, caches, fetch, crypto: webcrypto,
     self: {
       location: { href: origin + 'sw.js' },
       addEventListener(type, fn) { handlers[type] = fn; },
@@ -141,4 +142,42 @@ test('audio is optional at install, then cached for offline use without decoding
   w.state.online = false;
   const offline = await w.emit('fetch', {request});
   assert.deepEqual(await offline.arrayBuffer(), bytes);
+});
+
+
+test('shell-only updates keep downloaded audio available offline; changed audio gets a new cache', async () => {
+  const old = worker();
+  await old.emit('install');
+  const request = {url:origin + 'audio/music/01_mango_garden_menu.ogg',method:'GET',mode:'cors'};
+  const bytes = await (await old.emit('fetch', {request})).arrayBuffer();
+  const cosmeticCode = code.replace(/const CACHE_NAME = CACHE_PREFIX \+ '[^']+';/, "const CACHE_NAME = CACHE_PREFIX + 'cosmetic-update';");
+  assert.notEqual(cosmeticCode, code);
+  const updated = worker(cosmeticCode, old.stores);
+  await updated.emit('install');
+  await updated.emit('activate');
+  updated.state.online = false;
+  assert.deepEqual(await (await updated.emit('fetch', {request})).arrayBuffer(), bytes);
+  const changedCode = cosmeticCode.replace(/const AUDIO_DIGESTS = [\s\S]*?;/, 'const AUDIO_DIGESTS = {};');
+  const changed = worker(changedCode.replace(/const AUDIO_CACHE = AUDIO_CACHE_PREFIX \+ '[^']+';/, "const AUDIO_CACHE = AUDIO_CACHE_PREFIX + 'changed-audio';"), old.stores);
+  await changed.emit('activate');
+  changed.state.online = false;
+  await assert.rejects(changed.emit('fetch', {request}), /offline/);
+  assert.ok(!(await changed.caches.keys()).some(name => name.startsWith('sequencepang2-audio-') && !name.endsWith('changed-audio')));
+});
+
+
+test('first upgraded worker migrates only verified sounds from legacy shell-bound audio', async () => {
+  const w = worker();
+  const url = origin + 'audio/music/01_mango_garden_menu.ogg';
+  const old = await w.caches.open('sequencepang2-shell-old-audio');
+  const valid = await readFile(new URL('audio/music/01_mango_garden_menu.ogg', root));
+  await old.put(url, new Response(valid));
+  const badUrl = origin + 'audio/sfx/invalid_soft.wav';
+  await old.put(badUrl, new Response('wrong audio bytes'));
+  await w.emit('activate');
+  assert.equal((await w.caches.keys()).includes('sequencepang2-shell-old-audio'), false);
+  w.state.online = false;
+  assert.deepEqual(Buffer.from(await (await w.emit('fetch', {request:{url,method:'GET'}})).arrayBuffer()), valid);
+  const cacheName = (await w.caches.keys()).find(name => name.startsWith('sequencepang2-audio-'));
+  assert.equal(await (await w.caches.open(cacheName)).match(badUrl), undefined);
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { GameSession } from '../dist/session.js';
 import { levels } from '../dist/levels.js';
 import { solveDetailed } from '../dist/engine.js';
-import { saveRun, restoreRun, runKey, readProgress, saveProgress, progressKey, nextStageIndex, resetProgress, campaignComplete } from '../dist/progress.js';
+import { saveRun, restoreRun, runKey, readProgress, saveProgress, progressKey, readProgressState, readProgressEpoch, progressEpochKey, nextStageIndex, resetProgress, campaignComplete } from '../dist/progress.js';
 const storage=()=>{const data=new Map();return {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};};
 
 test('every stage restarts with its original board and full moves after leaving mid-puzzle',()=>{
@@ -96,4 +96,93 @@ test('campaign completion waits for every stage and reopens when new stages are 
   assert.equal(nextStageIndex(expanded,progress),levels.length);
   assert.equal(campaignComplete(levels,{}),false);
   assert.equal(campaignComplete([],{}),false);
+});
+
+
+test('stale completion snapshots merge without dropping another tab’s stages', () => {
+  const store = storage(), a = readProgress(store, levels), b = readProgress(store, levels);
+  a[levels[0].key] = true; a[levels[1].key] = true;
+  assert.equal(saveProgress(store, a), true);
+  b[levels[0].key] = true;
+  assert.equal(saveProgress(store, b), true);
+  assert.deepEqual(readProgress(store, levels), a);
+});
+
+test('reset invalidates stale snapshots and runs but permits fresh completion', () => {
+  const store = storage(), stale = readProgress(store, levels), oldEpoch = readProgressEpoch(store);
+  stale[levels[1].key] = true; saveProgress(store, stale);
+  assert.equal(resetProgress(store), true);
+  assert.equal(saveProgress(store, stale), false);
+  assert.deepEqual(readProgress(store, levels), {});
+  const game = new GameSession(levels); game.start(8);
+  saveRun(store, game, oldEpoch);
+  assert.equal(restoreRun(store, levels), null);
+  const fresh = readProgress(store, levels); fresh[levels[0].key] = true;
+  assert.equal(saveProgress(store, fresh), true);
+  assert.deepEqual(readProgress(store, levels), fresh);
+  saveRun(store, game);
+  assert.equal(restoreRun(store, levels).index, 8);
+});
+
+test('interleaved writes cannot lose completion, even if the compatibility snapshot races', () => {
+  const store = storage(), a = readProgress(store, levels), b = readProgress(store, levels);
+  a[levels[0].key] = true; b[levels[1].key] = true;
+  const set = store.setItem; let nested = false;
+  store.setItem = (key, value) => {
+    if (key === progressKey && !nested) { nested = true; saveProgress(store, b); }
+    set(key, value);
+  };
+  saveProgress(store, a);
+  assert.deepEqual(readProgress(store, levels), {...a, ...b});
+});
+
+test('a reset during an old write isolates all in-flight completion and run data', () => {
+  const store = storage(), stale = readProgress(store, levels);
+  stale[levels[1].key] = true;
+  const set = store.setItem; let reset = false;
+  store.setItem = (key, value) => {
+    if (key.startsWith('sequencepang2-completed:') && !reset) { reset = true; resetProgress(store); }
+    set(key, value);
+  };
+  assert.equal(saveProgress(store, stale), false);
+  assert.deepEqual(readProgress(store, levels), {});
+});
+
+
+test('reset during restore cannot stamp an old run into the new generation', () => {
+  const store = storage(), game = new GameSession(levels); game.start(8); saveRun(store, game);
+  const get = store.getItem; let reset = false;
+  store.getItem = key => {
+    const value = get(key);
+    if (key === progressEpochKey && !reset) { reset = true; resetProgress(store); }
+    return value;
+  };
+  assert.equal(restoreRun(store, levels), null);
+  assert.equal(store.getItem(runKey), null);
+  assert.equal(restoreRun(store, levels), null);
+});
+
+
+test('progress and generation remain paired when a reset interleaves a snapshot read', () => {
+  const store = storage(); saveProgress(store, {[levels[1].key]:true});
+  const get = store.getItem; let reset = false;
+  store.getItem = key => {
+    const value = get(key);
+    if (key === progressKey && !reset) { reset = true; resetProgress(store); }
+    return value;
+  };
+  const snapshot = readProgressState(store, levels);
+  assert.equal(snapshot.epoch, 'legacy');
+  assert.equal(snapshot.progress[levels[1].key], true);
+  assert.equal(saveProgress(store, snapshot.progress, snapshot.epoch), false);
+  assert.deepEqual(readProgressState(store, levels).progress, {});
+});
+
+
+test('startup cannot attach a run from a different progress snapshot generation', () => {
+  const store = storage(), initial = readProgressState(store, levels);
+  resetProgress(store);
+  const game = new GameSession(levels); game.start(8); saveRun(store, game);
+  assert.equal(restoreRun(store, levels, initial.epoch), null);
+  assert.equal(restoreRun(store, levels, readProgressState(store, levels).epoch).index, 8);
 });

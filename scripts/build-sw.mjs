@@ -24,8 +24,13 @@ const hash = createHash('sha256').update(template);
 // hosting policy changes, even if none of the game assets changed.
 hash.update(await readFile(new URL('../vercel.json', import.meta.url)));
 for (const name of [...files, ...audioFiles]) hash.update(name).update(await readFile(new URL(name, root)));
+const audioHash = createHash('sha256').update('audio-cache-v1');
+for (const name of audioFiles) audioHash.update(name).update(await readFile(new URL(name, root)));
+const audioVersion = audioHash.digest('hex').slice(0, 16);
+const audioDigests = {};
+for (const name of audioFiles) audioDigests['./' + name] = createHash('sha256').update(await readFile(new URL(name, root))).digest('hex');
 const version = hash.digest('hex').slice(0, 16);
-const output = template.replace('__VERSION__', version).replace('__ASSETS__', JSON.stringify(files.map(f => './' + f), null, 2)).replace('__AUDIO_ASSETS__', JSON.stringify(audioFiles.map(f => './' + f), null, 2));
+const output = template.replace('__VERSION__', version).replace('__AUDIO_VERSION__', audioVersion).replace('__AUDIO_DIGESTS__', JSON.stringify(audioDigests, null, 2)).replace('__ASSETS__', JSON.stringify(files.map(f => './' + f), null, 2)).replace('__AUDIO_ASSETS__', JSON.stringify(audioFiles.map(f => './' + f), null, 2));
 const target = new URL('sw.js', root);
 if (process.argv.includes('--check')) {
   if (await readFile(target, 'utf8') !== output) throw new Error('Offline bundle is stale. Run npm run build:pwa.');

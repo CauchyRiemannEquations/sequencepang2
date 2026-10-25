@@ -2,8 +2,10 @@
 const CACHE_PREFIX = 'sequencepang2-shell-';
 const CACHE_NAME = CACHE_PREFIX + '__VERSION__';
 const ASSETS = __ASSETS__;
-const AUDIO_CACHE = CACHE_NAME + '-audio';
+const AUDIO_CACHE_PREFIX = 'sequencepang2-audio-';
+const AUDIO_CACHE = AUDIO_CACHE_PREFIX + '__AUDIO_VERSION__';
 const AUDIO_ASSETS = __AUDIO_ASSETS__;
+const AUDIO_DIGESTS = __AUDIO_DIGESTS__;
 const BASE = new URL('./', self.location.href);
 const AUDIO_URLS = new Set(AUDIO_ASSETS.map(path => new URL(path, BASE).href));
 const ASSET_URLS = new Set(ASSETS.map(path => new URL(path, BASE).href));
@@ -23,8 +25,28 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    for (const key of await caches.keys()) {
-      if (key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME && key !== AUDIO_CACHE) await caches.delete(key);
+    const keys = await caches.keys();
+    // Migrate previously downloaded sounds, including the old shell-bound
+    // audio cache. Only byte-verified unchanged assets may cross versions.
+    for (const key of keys) {
+      if (key === AUDIO_CACHE || !(key.startsWith(AUDIO_CACHE_PREFIX) || (key.startsWith(CACHE_PREFIX) && key.endsWith('-audio')))) continue;
+      try {
+        const old = await caches.open(key), current = await caches.open(AUDIO_CACHE);
+        for (const path of AUDIO_ASSETS) {
+          try {
+            const url = new URL(path, BASE).href;
+            if (await current.match(url)) continue;
+            const response = await old.match(url);
+            if (!response?.ok) continue;
+            const digest = await crypto.subtle.digest('SHA-256', await response.clone().arrayBuffer());
+            const hex = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+            if (hex === AUDIO_DIGESTS[path]) await current.put(url, response);
+          } catch {} // Optional sound must never block an app update.
+        }
+      } catch {}
+    }
+    for (const key of keys) {
+      if ((key.startsWith(CACHE_PREFIX) || key.startsWith(AUDIO_CACHE_PREFIX)) && key !== CACHE_NAME && key !== AUDIO_CACHE) await caches.delete(key);
     }
     await self.clients.claim();
   })());

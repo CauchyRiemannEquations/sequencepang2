@@ -3,27 +3,51 @@ import { kind, adjacent, stars } from './engine.js';
 import { levels as allLevels } from './levels.js';
 import { playableLevels, hundredStageRelease, showHundredStageNotice } from './release.js';
 import { GameSession } from './session.js';
-import { readProgress, saveProgress, restoreRun, saveRun, nextStageIndex, resetProgress, campaignComplete } from './progress.js';
+import { readProgressState, progressKey, progressEpochKey, saveProgress, restoreRun, saveRun, nextStageIndex, resetProgress, campaignComplete } from './progress.js';
 import { dragTargets, dragHits } from './drag-hit.js';
 import { MangoHints, firstHint, hintTier } from './hints.js';
 
 const $ = id => document.getElementById(id);
 let levels = playableLevels(allLevels);
 let session;
-try { session = restoreRun(localStorage, levels); } catch {}
-session ||= new GameSession(levels);
 const modal = $('modal');
 let selected = [];
 let dragging = false, moved = false, gesture;
 let resultOpen = false;
 let progress = {};
+let progressEpoch;
 let hintStorage;
 try { hintStorage = localStorage; } catch {}
 let hints = new MangoHints(hintStorage, levels);
 let visibleHint = [];
-try { progress = readProgress(localStorage, levels); } catch {}
+try {
+  ({ progress, epoch: progressEpoch } = readProgressState(localStorage, levels));
+  session = restoreRun(localStorage, levels, progressEpoch);
+} catch {}
+session ||= new GameSession(levels);
 const gameAudio = new GameAudio({ storage: hintStorage });
-function persistRun() { try { saveRun(localStorage, session); } catch {} }
+function persistRun() { try { saveRun(localStorage, session, progressEpoch); } catch {} }
+function syncProgress() {
+  try {
+    const { progress: latest, epoch } = readProgressState(localStorage, levels);
+    if (epoch !== progressEpoch) {
+      progressEpoch = epoch;
+      progress = latest;
+      hints = new MangoHints(hintStorage, levels);
+      visibleHint = []; selected = []; dragging = false;
+      session = new GameSession(levels);
+      showHome();
+      return false;
+    }
+    progress = { ...progress, ...latest };
+    if (!$('home').hidden && !modal.open) showHome();
+  } catch {}
+  return true;
+}
+window.addEventListener('storage', event => {
+  if (event.storageArea && event.storageArea !== hintStorage) return;
+  if (event.key === null || event.key === progressKey || event.key === progressEpochKey || event.key?.startsWith('sequencepang2-completed:')) syncProgress();
+});
 // The capture phase unlocks Web Audio inside a real input, before game handlers.
 function unlockAudio(event) { if (event.isTrusted) void gameAudio.unlock(); }
 document.addEventListener('pointerdown', unlockAudio, { capture: true });
@@ -40,8 +64,6 @@ function message(text, good = false) {
 function closeModal() {
   resultOpen = false;
   modal.close();
-  gameAudio.setModal(false);
-  if (visibleHint.length && !$('game').hidden) paintHint();
 }
 
 function refreshRelease() {
@@ -91,6 +113,10 @@ function load(index) {
 }
 
 function render(previousBoard) {
+  const active = document.activeElement;
+  const focusedIndex = active?.closest('[data-i]')?.dataset.i;
+  const restoreFocus = !pointerCommit && (focusedIndex !== undefined || active === $('submit'));
+  const focusedId = focusedIndex !== undefined ? (previousBoard || session.board)[+focusedIndex]?.id : null;
   const { board, moves, index, level } = session;
   $('stage-no').textContent = String(index + 1).padStart(2, '0');
   $('moves').textContent = moves;
@@ -119,6 +145,11 @@ function render(previousBoard) {
     }
   }
   paint();
+  if (restoreFocus) {
+    const surviving = focusedId == null ? -1 : board.findIndex(cell => cell?.id === focusedId);
+    const target = $('board').querySelector(`[data-i="${surviving >= 0 ? surviving : focusedIndex}"]`) || $('board').querySelector('[data-i]');
+    target?.focus({ preventScroll: true });
+  }
 }
 
 // Size against the visible viewport and actual text height, including tutorials.
@@ -136,7 +167,14 @@ function fitBoard() {
     controls += element.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
   }
   const visibleHeight = window.visualViewport?.height || window.innerHeight;
-  const minBoard = session.level.n === 5 ? 250 : 220;
+  const frame = game.querySelector('.board-frame');
+  const horizontalChrome = element => {
+    const style = getComputedStyle(element);
+    return ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
+  };
+  const gap = parseFloat(getComputedStyle($('board')).columnGap) || parseFloat(getComputedStyle($('board')).gap) || 0;
+  const minBoard = Math.ceil(session.level.n * 44 + (session.level.n - 1) * gap + horizontalChrome(frame) + horizontalChrome($('board').parentElement));
+  frame.style.minWidth = `${minBoard}px`;
   const size = Math.floor(Math.min(game.clientWidth - paddingX, Math.max(minBoard, visibleHeight - paddingY - controls - 8)));
   game.querySelector('.board-frame').style.width = `${size}px`;
 }
@@ -183,7 +221,7 @@ function renderHint() {
 }
 
 function paintHint() {
-  const path = !session.history.length && !$('game').hidden && !modal.open ? visibleHint : [];
+  const path = !document.hidden && session.status === 'playing' && !session.history.length && !$('game').hidden && !modal.open ? visibleHint : [];
   for (const tile of $('board').querySelectorAll('[data-i]')) {
     tile.classList.toggle('hint-start', path[0] === +tile.dataset.i);
     tile.classList.remove('hinted');
@@ -276,13 +314,18 @@ function pick(i) {
   return true;
 }
 
+let pointerCommit = false;
 function commit() {
+  if (!syncProgress()) return;
   if (modal.open || !selected.length) return;
   const previousBoard = session.board;
+  const submitHadFocus = document.activeElement === $('submit');
+  const firstSelected = selected[0];
   const result = session.play(selected);
   selected = [];
   if (!result) {
     paint();
+    if (submitHadFocus && !pointerCommit) $('board').querySelector(`[data-i="${firstSelected}"]`)?.focus({ preventScroll: true });
     message('등차·등비수열 3개 이상을 연결해 주세요');
     void gameAudio.play('invalid_soft');
     return;
@@ -297,7 +340,7 @@ function commit() {
   message(`${result.sequence} 팡!`, true);
   if (result.status === 'cleared') {
     progress[session.level.key] = true;
-    try { saveProgress(localStorage, progress); } catch {}
+    try { saveProgress(localStorage, progress, progressEpoch); } catch {}
     showResult(true);
   } else if (result.status === 'failed') showResult(false);
   persistRun();
@@ -309,7 +352,9 @@ function show(content, isResult = false) {
   if (!$('game').hidden) paint();
   resultOpen = isResult;
   $('close-modal').hidden = isResult;
+  const replacingFocus = modal.open && $('modal-content').contains(document.activeElement);
   $('modal-content').innerHTML = content;
+  if (replacingFocus) $('modal-content').querySelector('button, input, [tabindex]')?.focus({ preventScroll: true });
   if (!modal.open) modal.showModal();
   gameAudio.setModal(!isResult);
   stopHintMotion();
@@ -405,7 +450,7 @@ function confirmReset() {
       $('reset-error').textContent = '저장소에 접근할 수 없어 초기화하지 못했어요. 브라우저 설정을 확인해 주세요.';
       return;
     }
-    progress = {};
+    ({ progress, epoch: progressEpoch } = readProgressState(localStorage, levels));
     hints = new MangoHints(hintStorage, levels);
     visibleHint = [];
     session = new GameSession(levels);
@@ -431,7 +476,10 @@ function help(active = 'arithmetic') {
     <p class="help-copy">${d.copy}</p>
     <p class="help-note">이웃한 숫자 <b>3개 이상</b>을 누른 채로 이어요. 대각선과 꺾이는 길도 가능해요. 잘못된 연결은 이동을 쓰지 않아요.</p>
     <p class="help-keyboard">키보드: Tab으로 이동 → Space로 선택 → 선택 완료. 시간제한은 없어요.</p>`);
-  $('modal-content').querySelectorAll('[data-demo]').forEach(button => button.onclick = () => help(button.dataset.demo));
+  $('modal-content').querySelectorAll('[data-demo]').forEach(button => button.onclick = () => {
+    help(button.dataset.demo);
+    $('modal-content').querySelector(`[data-demo="${button.dataset.demo}"]`)?.focus({ preventScroll: true });
+  });
   $('demo-toggle').onclick = () => {
     const paused = $('modal-content').querySelector('.help-demo').classList.toggle('paused');
     $('demo-toggle').setAttribute('aria-pressed', String(paused));
@@ -473,7 +521,7 @@ $('board').addEventListener('pointerup', event => {
   moveSelection(event);
   dragging = false;
   gesture = null;
-  if (moved) commit();
+  if (moved) { pointerCommit = true; try { commit(); } finally { pointerCommit = false; } }
   else { selected = []; paint(); message('누른 채로 숫자 3개 이상을 이으세요'); }
 });
 function cancelDrag() {
@@ -498,6 +546,7 @@ $('board').addEventListener('keydown', event => {
 $('submit').onclick = commit;
 $('ask-mango').onclick = askMango;
 $('start-game').onclick = () => {
+  syncProgress();
   refreshRelease();
   if (campaignComplete(levels, progress)) { showComingSoon(); return; }
   if (['playing', 'failed'].includes(session.status)) load(session.index);
@@ -510,13 +559,19 @@ $('game-home').onclick = showHome;
 $('coming-home').onclick = showHome;
 $('close-modal').onclick = closeModal;
 modal.addEventListener('cancel', event => { if (resultOpen) event.preventDefault(); });
-modal.addEventListener('close', () => gameAudio.setModal(false));
+modal.addEventListener('close', () => {
+  if (modal.open) return; // An earlier close event may arrive after reopening.
+  resultOpen = false;
+  gameAudio.setModal(false);
+  if (!document.hidden && !$('game').hidden && session.status === 'playing') paintHint();
+});
 $('home-help').onclick = () => help();
 window.addEventListener('pagehide', () => { persistRun(); stopHintMotion(); gameAudio.setHidden(true); });
-window.addEventListener('pageshow', () => gameAudio.setHidden(document.hidden));
+window.addEventListener('pageshow', () => { syncProgress(); gameAudio.setHidden(document.hidden); if (!document.hidden && !$('game').hidden) paintHint(); });
 document.addEventListener('visibilitychange', () => {
   gameAudio.setHidden(document.hidden);
   if (document.hidden) { stopHintMotion(); return; }
+  if (!syncProgress()) return;
   const opened = refreshRelease();
   if (opened && (!$('home').hidden || !$('coming-soon').hidden)) showHome();
   else if (!$('game').hidden) paintHint();
