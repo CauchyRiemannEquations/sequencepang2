@@ -7,11 +7,11 @@ import { analyze } from '../scripts/generate-campaign.mjs';
 import { campaignData } from '../dist/campaign-data.js';
 import { GameSession } from '../dist/session.js';
 
-test('campaign has 100 distinct boards and stable identities across ten chapters', () => {
-  assert.equal(levels.length, 100);
-  assert.equal(new Set(levels.map(l => l.key)).size, 100);
-  const boards = levels.map(l => JSON.stringify(l.board.map(c => [c.v, c.star])));
-  assert.equal(new Set(boards).size, 100);
+test('campaign has 110 distinct boards and stable identities across eleven chapters', () => {
+  assert.equal(levels.length, 110);
+  assert.equal(new Set(levels.map(l => l.key)).size, 110);
+  const boards = levels.map(l => JSON.stringify(l.board.map(c => c ? [c.v, c.star, !!c.frost] : null)));
+  assert.equal(new Set(boards).size, 110);
   for (const level of levels) {
     assert.ok(chapters.some(c => c.id === level.chapter));
     assert.equal(level.board.length, level.n ** 2);
@@ -19,10 +19,10 @@ test('campaign has 100 distinct boards and stable identities across ten chapters
   }
 });
 
-test('only the first ten stages are introductory, with ten stages per chapter', () => {
-  assert.deepEqual(chapters.map(c => levels.filter(l => l.chapter === c.id).length), Array(10).fill(10));
+test('chapters contain ten stages and the original campaign keeps its difficulty curve', () => {
+  assert.deepEqual(chapters.map(c => levels.filter(l => l.chapter === c.id).length), Array(11).fill(10));
   assert.ok(levels.slice(0,10).every(l => l.moves <= 2));
-  assert.ok(levels.slice(10).every(l => l.moves >= 3));
+  assert.ok(levels.slice(10, 100).every(l => l.moves >= 3));
   assert.ok(levels.slice(24,30).every(l => l.moves === 5));
 });
 for (const [i, data] of campaignData.entries()) {

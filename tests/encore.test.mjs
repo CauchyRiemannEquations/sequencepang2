@@ -6,8 +6,8 @@ import { profiles } from '../scripts/generate-encore.mjs';
 import { analyze } from '../scripts/generate-campaign.mjs';
 import { GameSession } from '../dist/session.js';
 import { stars, valid } from '../dist/engine.js';
-import { playableLevels, hundredStageRelease } from '../dist/release.js';
-import { nextStageIndex, readProgress, progressKey } from '../dist/progress.js';
+import { playableLevels, hundredStageRelease, frostRelease, releaseNotice } from '../dist/release.js';
+import { campaignComplete, nextStageIndex, readProgress, progressKey } from '../dist/progress.js';
 
 test('midnight October 1 in Korea opens stages 51–100 without changing saved progress', () => {
   const before = playableLevels(levels, hundredStageRelease - 1);
@@ -48,4 +48,21 @@ for (const [i, data] of encoreData.entries()) test(`stage ${i + 51}: exact depth
   assert.equal(game.status, 'cleared');
   assert.equal(game.moves, 0);
   assert.equal(stars(game.board), 0);
+});
+
+test('the frost release opens 101 for a returning 100-stage finisher', () => {
+  const oldCampaign = playableLevels(levels, frostRelease - 1);
+  const newCampaign = playableLevels(levels, frostRelease);
+  const record = Object.fromEntries(oldCampaign.map(level => [level.key, true]));
+  const storage = { getItem: key => key === progressKey ? JSON.stringify(record) : null };
+  const progress = readProgress(storage, newCampaign);
+  assert.equal(oldCampaign.length, 100);
+  assert.equal(newCampaign.length, 110);
+  assert.deepEqual(progress, record);
+  assert.ok(campaignComplete(oldCampaign, progress));
+  assert.equal(campaignComplete(newCampaign, progress), false);
+  assert.equal(newCampaign[nextStageIndex(newCampaign, progress)].id, 101);
+  assert.equal(releaseNotice(frostRelease - 1), '');
+  assert.match(releaseNotice(frostRelease), /101–110/);
+  assert.equal(releaseNotice(frostRelease + 14 * 86400000), '');
 });

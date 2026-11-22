@@ -745,5 +745,85 @@ export const hintData = {
       18,
       24
     ]
+  },
+  "frost-v1-101": {
+    "signature": "[3,2,[null,null,null,[9,false],[6,false],null,[1,false],[2,false],[3,true,\"frost\"]]]",
+    "path": [
+      3,
+      4,
+      8
+    ]
+  },
+  "frost-v1-102": {
+    "signature": "[3,2,[null,null,null,[5,false],null,[1,false],[3,true],[4,true,\"frost\"],[2,false]]]",
+    "path": [
+      3,
+      7,
+      6
+    ]
+  },
+  "frost-v1-103": {
+    "signature": "[3,2,[null,null,[2,true,\"frost\"],null,[1,false],[3,false],[7,false],[8,true],[4,false]]]",
+    "path": [
+      4,
+      2,
+      5
+    ]
+  },
+  "frost-v1-104": {
+    "signature": "[3,2,[null,[7,true],[7,false],null,[4,false],[4,false],[1,false],[7,true,\"frost\"],[4,false]]]",
+    "path": [
+      6,
+      4,
+      7
+    ]
+  },
+  "frost-v1-105": {
+    "signature": "[3,3,[[4,false],[5,false],[6,false],[5,true,\"frost\"],[2,false],[4,false],[8,false],[3,false],[4,true]]]",
+    "path": [
+      4,
+      3,
+      6
+    ]
+  },
+  "frost-v1-106": {
+    "signature": "[3,2,[null,[2,false],null,[9,false],[1,true],null,[7,false],[4,true,\"frost\"],[8,false]]]",
+    "path": [
+      4,
+      7,
+      6
+    ]
+  },
+  "frost-v1-107": {
+    "signature": "[4,3,[[7,true,\"frost\"],[4,false],null,null,[6,false],[9,true],null,null,[5,false],[8,false],null,null,[1,false],[2,true],[2,false],[3,false]]]",
+    "path": [
+      0,
+      4,
+      8
+    ]
+  },
+  "frost-v1-108": {
+    "signature": "[4,3,[null,null,null,null,null,[5,false],[3,false],[8,false],[2,false],[7,false],[9,false],[2,false],[3,true],[5,false],[4,true,\"frost\"],[1,true]]]",
+    "path": [
+      14,
+      11,
+      15
+    ]
+  },
+  "frost-v1-109": {
+    "signature": "[4,3,[null,null,[1,true,\"frost\"],[2,false],null,[5,false],[9,false],[8,false],null,[9,false],[4,false],[1,false],[3,false],[7,false],[8,false],[2,true]]]",
+    "path": [
+      2,
+      5,
+      6
+    ]
+  },
+  "frost-v1-110": {
+    "signature": "[4,4,[null,[5,true],[8,false],[6,false],null,[3,true],[4,false],[9,true],[8,false],[4,false],[6,true],[1,false],[1,false],[8,false],[9,true,\"frost\"],[6,true]]]",
+    "path": [
+      5,
+      10,
+      7
+    ]
   }
 };

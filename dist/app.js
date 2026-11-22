@@ -1,7 +1,7 @@
 import { GameAudio } from './audio.js';
 import { kind, adjacent, stars } from './engine.js';
 import { levels as allLevels } from './levels.js';
-import { playableLevels, hundredStageRelease, showHundredStageNotice } from './release.js';
+import { playableLevels, hundredStageRelease, frostRelease, releaseNotice } from './release.js';
 import { GameSession } from './session.js';
 import { readProgressState, progressKey, progressEpochKey, saveProgress, restoreRun, saveRun, nextStageIndex, resetProgress, campaignComplete } from './progress.js';
 import { dragTargets, dragHits } from './drag-hit.js';
@@ -74,6 +74,11 @@ function refreshRelease() {
   return true;
 }
 
+function continueIndex() {
+  if (['playing', 'failed'].includes(session.status) && !progress[session.level.key]) return session.index;
+  return nextStageIndex(levels, progress);
+}
+
 function showHome() {
   gameAudio.setScene('menu');
   refreshRelease();
@@ -87,8 +92,10 @@ function showHome() {
   $('coming-soon').hidden = true;
   $('home-cleared').textContent = levels.filter(level => progress[level.key] === true).length;
   $('home-total').textContent = `/ ${levels.length}`;
-  $('release-note').hidden = levels.length < 100 || !showHundredStageNotice();
-  const next = ['playing', 'failed'].includes(session.status) ? session.index : nextStageIndex(levels, progress);
+  const notice = releaseNotice();
+  $('release-note').textContent = notice;
+  $('release-note').hidden = !notice;
+  const next = continueIndex();
   $('resume-note').textContent = session.status === 'playing' || next > 0 ? `STAGE ${String(next + 1).padStart(2, '0')}에서 이어서` : '첫 번째 별을 만나러 가요';
   if (campaignComplete(levels, progress)) $('resume-note').textContent = '모든 스테이지를 클리어했어요!';
 }
@@ -126,9 +133,9 @@ function render(previousBoard) {
   $('star-count').textContent = `${stars(level.board) - stars(board)} / ${stars(level.board)}`;
   $('board').style.setProperty('--n', level.n);
   $('board').innerHTML = board.map((cell, i) => cell ? `
-    <button class="tile${cell.star ? ' starred' : ''}" data-i="${i}"
-      aria-label="${Math.floor(i / level.n) + 1}행 ${i % level.n + 1}열, ${cell.v}${cell.star ? ', 별' : ''}" aria-pressed="false">
-      <span>${cell.v}</span>${cell.star ? '<span class="star" aria-hidden="true">★</span>' : ''}
+    <button class="tile${cell.star ? ' starred' : ''}${cell.frost ? ' frosted' : ''}" data-i="${i}"
+      aria-label="${Math.floor(i / level.n) + 1}행 ${i % level.n + 1}열, ${cell.v}${cell.frost ? ', 서리' : ''}${cell.star ? ', 별' : ''}" aria-pressed="false">
+      <span>${cell.v}</span>${cell.frost ? '<span class="snowflake" aria-hidden="true">❄</span>' : ''}${cell.star ? '<span class="star" aria-hidden="true">★</span>' : ''}
     </button>` : '<div class="empty" aria-hidden="true"></div>').join('');
   $('submit').hidden = selected.length < 3 || dragging;
   renderHint();
@@ -136,6 +143,7 @@ function render(previousBoard) {
   if (previousBoard && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     for (const tile of $('board').querySelectorAll('[data-i]')) {
       const i = +tile.dataset.i, before = previousBoard.findIndex(c => c?.id === board[i].id);
+      if (previousBoard[before]?.frost && !board[i].frost) tile.classList.add('thawed');
       const rows = Math.floor(i / level.n) - Math.floor(before / level.n);
       if (before >= 0 && rows > 0) {
         const gap = parseFloat(getComputedStyle($('board')).gap) || 0;
@@ -321,6 +329,7 @@ function commit() {
   const previousBoard = session.board;
   const submitHadFocus = document.activeElement === $('submit');
   const firstSelected = selected[0];
+  const breaksFrost = selected.some(i => previousBoard[i]?.frost);
   const result = session.play(selected);
   selected = [];
   if (!result) {
@@ -337,7 +346,7 @@ function commit() {
   visibleHint = [];
   if (result.status === 'failed') hints.recordFailure(session);
   render(previousBoard);
-  message(`${result.sequence} 팡!`, true);
+  message(breaksFrost ? `${result.sequence} 팡! 서리가 깨지고 숫자가 남았어요.` : `${result.sequence} 팡!`, true);
   if (result.status === 'cleared') {
     progress[session.level.key] = true;
     try { saveProgress(localStorage, progress, progressEpoch); } catch {}
@@ -549,8 +558,7 @@ $('start-game').onclick = () => {
   syncProgress();
   refreshRelease();
   if (campaignComplete(levels, progress)) { showComingSoon(); return; }
-  if (['playing', 'failed'].includes(session.status)) load(session.index);
-  else load(nextStageIndex(levels, progress));
+  load(continueIndex());
 };
 $('game-settings').onclick = settings;
 $('home-settings').onclick = settings;
@@ -582,8 +590,14 @@ window.addEventListener('resize', resizeGame);
 window.visualViewport?.addEventListener('resize', resizeGame);
 document.fonts?.ready.then(resizeGame);
 showHome();
-if (Date.now() < hundredStageRelease) {
+function scheduleNextRelease() {
+  const now = Date.now();
+  const nextRelease = [hundredStageRelease, frostRelease].find(time => time > now);
+  if (!nextRelease) return;
+  // Browsers clamp longer timers to a signed 32-bit delay.
   setTimeout(() => {
     if (refreshRelease() && (!$('home').hidden || !$('coming-soon').hidden)) showHome();
-  }, hundredStageRelease - Date.now() + 50);
+    scheduleNextRelease();
+  }, Math.min(nextRelease - now + 50, 2147483647));
 }
+scheduleNextRelease();

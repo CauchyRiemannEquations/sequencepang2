@@ -1,6 +1,7 @@
 import { campaignData } from './campaign-data.js';
 import { expansionData } from './expansion-data.js';
 import { encoreData } from './encore-data.js';
+import { frostData } from './frost-data.js';
 
 const specs = [
   [4,2,[1,2,3,8, 7,9,5,2, 2,4,6,9, 9,5,8,7],[0,2,8,10]],
@@ -17,6 +18,7 @@ export const chapters = [
   { id: 'prism', name: '빛의 조각', subtitle: '여러 길을 비교해요', symbol: '❋' },
   { id: 'horizon', name: '먼 별자리', subtitle: '다음 낙하를 내다봐요', symbol: '✶' },
   { id: 'crown', name: '백 번째 별', subtitle: '마지막 별까지 이어가요', symbol: '✷' },
+  { id: 'frost', name: '서리 정원', subtitle: '얼음을 깨고 남은 숫자를 다시 이어요', symbol: '❄' },
 ];
 
 const tutorials = [
@@ -30,8 +32,8 @@ const tutorials = [
   [4, 1, [7,9,5,8, 9,5,8,6, 6,8,9,7, 1,2,3,4], [12,15], '길게 한 번', '3개보다 길게 이어도 한 번! 남은 횟수 안에 별을 모두 모으세요.'],
 ];
 
-const make = (n, moves, values, ss, key, extra) => ({ n, moves, key, ...extra,
-  board: values.map((v, j) => v === null ? null : ({ v, star: ss.includes(j), id: `${key}-${j}` })) });
+const make = (n, moves, values, ss, key, extra, frost = []) => ({ n, moves, key, ...extra,
+  board: values.map((v, j) => v === null ? null : ({ v, star: ss.includes(j), ...(frost.includes(j) ? { frost: true } : {}), id: `${key}-${j}` })) });
 const originalNames = ['두 번의 연결', '새로운 간격'];
 const campaignNames = ['갈림길', '남겨 둔 숫자', '연결의 순서', '두 가지 수열', '한 수 먼저', '숲의 마지막 길', '연쇄 낙하', '엇갈린 수열', '남겨야 할 별', '숲의 미로', '새로운 궤도', '교차하는 길', '별의 자리', '네 번의 생각', '다섯 걸음', '멀리 있는 별', '빈자리의 의미', '이어지는 별', '마지막 갈림길', '별자리 완성'];
 const expansionNames = ['다시 한 걸음', '두 가지 간격', '빈손의 시작', '겹친 궤도', '첫 번째 고개', '작은 쉼표', '곱과 차', '기다리는 별', '엇갈린 낙하', '두 번째 고개', '작은 별밭', '바뀌는 간격', '보이지 않는 길', '다섯 번의 선택', '세 번째 고개', '잠깐의 여유', '맞물린 수열', '마지막 준비', '정상으로', '쉰 번째 별'];
@@ -42,4 +44,7 @@ export const levels = [
   ...campaignData.map((l,i) => make(l.n,l.moves,l.values,l.stars,`complex-v3-${i+11}`, { chapter: i < 10 ? 'grove' : 'orbit', title: campaignNames[i], objective: l.objective })),
   ...expansionData.map((l,i) => make(l.n,l.moves,l.values,l.stars,`expansion-v1-${i+31}`, { chapter: i < 10 ? 'weave' : 'summit', title: expansionNames[i], objective: l.objective })),
   ...encoreData.map((l,i) => make(l.n,l.moves,l.values,l.stars,`encore-v1-${i+51}`, { chapter: ['dawn', 'river', 'prism', 'horizon', 'crown'][Math.floor(i / 10)], title: encoreNames[i], objective: l.objective })),
+  ...frostData.map((l, i) => make(l.n, l.moves, l.values, l.stars, `frost-v1-${i + 101}`, {
+    chapter: 'frost', title: l.title, lesson: l.lesson, objective: 'frost',
+  }, l.frost)),
 ].map((level, i) => ({ ...level, id: i + 1 }));

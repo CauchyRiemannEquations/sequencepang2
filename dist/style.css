@@ -111,3 +111,32 @@ dialog{color:var(--cream);background:linear-gradient(145deg,#13513e,#042d23);bor
 .home-links{flex-wrap:wrap;gap:0}
 .home-links .audio-settings-button{gap:5px}
 .audio-settings-button svg{flex:none}
+
+.tile.frosted:not(.selected) {
+  color: #123b50;
+  background: linear-gradient(145deg, #f3ffff, #cdedf6 60%, #a8d5e8);
+  border-color: #eaffff;
+  box-shadow: inset 1px 3px 1px #fff, inset 0 -5px 0 #7bb4cb, 0 3px 2px #01271e90;
+}
+.tile .snowflake {
+  position: absolute;
+  left: 4%;
+  bottom: 4%;
+  color: #13516c;
+  font: 700 clamp(12px, 4.5cqw, 19px)/1 sans-serif;
+  pointer-events: none;
+}
+.tile.thawed::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 3px solid #83d6ed;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: frost-thaw .38s ease-out both;
+}
+@keyframes frost-thaw {
+  from { opacity: 1; transform: scale(.91); }
+  to { opacity: 0; transform: scale(1.08); }
+}
+@media (prefers-reduced-motion: reduce) { .tile.thawed::before { display: none; } }
