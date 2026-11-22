@@ -1,9 +1,11 @@
 import { hintData } from './hint-data.js';
 import { valid } from './engine.js';
+import { puzzleSignature } from './puzzle-signature.js';
+
+export { puzzleSignature };
 
 export const hintKey = 'sequencepang2-hints-v1';
 export const hintTier = count => count >= 5 ? 2 : count >= 3 ? 1 : 0;
-export const puzzleSignature = level => JSON.stringify([level.n, level.moves, level.board.map(c => c ? [c.v, !!c.star] : null)]);
 
 // Precomputed, verified first moves keep expensive search off mobile devices.
 export function firstHint(level) {

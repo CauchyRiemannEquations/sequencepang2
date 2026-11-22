@@ -1,12 +1,32 @@
 export function kind(values){if(values.length<3)return null;const d=values[1]-values[0];if(values.every((v,i)=>i<1||v-values[i-1]===d))return '등차수열';if(values.every((v,i)=>i<2||v*values[i-2]===values[i-1]*values[i-1]))return '등비수열';return null;}
 export function adjacent(a,b,n){return a!==b&&Math.abs(a%n-b%n)<=1&&Math.abs(Math.floor(a/n)-Math.floor(b/n))<=1;}
 export function valid(board,path,n){return path.length>=3&&new Set(path).size===path.length&&path.every((p,i)=>Number.isInteger(p)&&!!board[p]&&(!i||adjacent(p,path[i-1],n)))&&!!kind(path.map(p=>board[p].v));}
-export function remove(board,path,n){const next=board.map(c=>c?{...c}:null);for(const p of path)next[p]=null;for(let c=0;c<n;c++){const col=[];for(let r=0;r<n;r++)if(next[r*n+c])col.push(next[r*n+c]);for(let r=n-1;r>=0;r--)next[r*n+c]=col.pop()||null;}return next;}
+export function remove(board, path, n) {
+  const next = board.map(cell => cell ? { ...cell } : null);
+  for (const index of path) {
+    if (next[index]?.frost) delete next[index].frost;
+    else next[index] = null;
+  }
+  for (let column = 0; column < n; column++) {
+    const remaining = [];
+    for (let row = 0; row < n; row++) {
+      const cell = next[row * n + column];
+      if (cell) remaining.push(cell);
+    }
+    for (let row = n - 1; row >= 0; row--) next[row * n + column] = remaining.pop() ?? null;
+  }
+  return next;
+}
 export const stars=board=>board.filter(c=>c?.star).length;
+
+// Tile identities do not affect the solution; frost does, even on a starless tile.
+export function searchKey(board, moves) {
+  return board.map(cell => cell ? `${cell.v}${cell.star ? 's' : ''}${cell.frost ? 'f' : ''}` : '_').join(',') + ':' + moves;
+}
 const exhausted = Symbol('search limit');
 function spend(budget) { if (--budget.left < 0) throw exhausted; }
 
-// Reverse paths and paths removing the same cells produce identical next boards.
+// Reverse paths and paths using the same cells produce identical next boards.
 export function paths(board, n, budget = { left: 200000 }) {
   const out = [], seen = new Set();
   const neighbors = board.map((cell, i) => cell ? board.flatMap((c, j) => c && adjacent(i, j, n) ? [j] : []) : []);
@@ -30,7 +50,7 @@ export function solveDetailed(board, n, moves, limit = 200000) {
     if (!stars(board)) return [];
     if (!moves) return null;
     spend(budget);
-    const key = board.map(c => c ? `${c.v}${c.star ? 's' : ''}` : '_').join(',') + ':' + moves;
+    const key = searchKey(board, moves);
     if (memo.has(key)) return null;
     memo.add(key);
     const options = paths(board, n, budget).sort((a, b) => b.filter(i => board[i].star).length - a.filter(i => board[i].star).length);

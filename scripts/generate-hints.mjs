@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { levels } from '../dist/levels.js';
+import { puzzleSignature } from '../dist/puzzle-signature.js';
 import { solveDetailed } from '../dist/engine.js';
 
 const data = {};
@@ -7,7 +8,7 @@ for (const level of levels.filter(l => l.id >= 11)) {
   const result = solveDetailed(level.board, level.n, level.moves, 20000000);
   if (result.status !== 'solved' || !result.solution.length) throw Error(`No verified hint: ${level.key}`);
   data[level.key] = {
-    signature: JSON.stringify([level.n, level.moves, level.board.map(c => c ? [c.v, !!c.star] : null)]),
+    signature: puzzleSignature(level),
     path: result.solution[0],
   };
 }

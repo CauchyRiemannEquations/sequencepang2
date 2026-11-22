@@ -16,12 +16,13 @@ import * as hints from '../dist/hints.js';
 const html = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');
 const source = readFileSync(new URL('../dist/app.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
 const css = readFileSync(new URL('../dist/style.css', import.meta.url), 'utf8');
-function app(t) {
+function app(t, now = Date.now()) {
   const dom = new JSDOM(html, {url:'https://game.example/',runScripts:'outside-only',pretendToBeVisual:true});
   t.after(() => dom.window.close());
   const w = dom.window, doc = w.document;
   const style = doc.createElement('style'); style.textContent = css; doc.head.append(style);
   Object.assign(w, {GameAudio,...engine,allLevels,...release,GameSession,...progress,...drag,...hints,structuredClone});
+  w.Date.now = () => now;
   w.matchMedia = () => ({matches:false,addEventListener(){}});
   w.Element.prototype.animate = () => ({cancel(){}});
   w.HTMLElement.prototype.getBoundingClientRect = function () {
@@ -117,4 +118,37 @@ test('a stale queued close event cannot unmute or restore hints behind a reopene
   assert.equal(modal.open,true);
   assert.equal(a.run('gameAudio.modal'),true);
   assert.equal(a.doc.getElementById('hint-lines').classList.contains('demonstrating'),false);
+});
+
+test('a returning player enters 101, thaws its star, and can advance to 102', t => {
+  const a = app(t, release.frostRelease);
+  // A second tab can finish 100 while this one still has an active run there.
+  a.run('load(99); showHome()');
+  const oldProgress = Object.fromEntries(allLevels.slice(0, 100).map(level => [level.key, true]));
+  a.w.localStorage.setItem(progress.progressKey, JSON.stringify(oldProgress));
+  a.doc.getElementById('start-game').click();
+  assert.equal(a.doc.getElementById('stage-no').textContent, '101');
+  assert.match(a.doc.querySelector('.frosted').getAttribute('aria-label'), /서리, 별/);
+  const level = allLevels[100];
+  const plan = engine.solve(level.board, level.n, level.moves);
+  const frozen = level.board.findIndex(cell => cell?.frost);
+  const game = new GameSession([level]);
+  game.start(0);
+  for (const path of plan) {
+    const thaws = path.some(i => game.board[i]?.frost);
+    for (const i of path) a.doc.querySelector(`[data-i="${i}"]`).click();
+    a.doc.getElementById('submit').click();
+    game.play(path);
+    if (thaws) {
+      const position = game.board.findIndex(cell => cell?.id === level.board[frozen].id);
+      const remaining = a.doc.querySelector(`[data-i="${position}"]`);
+      assert.ok(remaining.classList.contains('starred'));
+      assert.ok(remaining.classList.contains('thawed'));
+      assert.doesNotMatch(remaining.getAttribute('aria-label'), /서리/);
+      assert.match(a.doc.getElementById('feedback').textContent, /서리가 깨지고/);
+    }
+  }
+  assert.equal(a.doc.getElementById('modal-title').textContent, '성공!');
+  a.doc.getElementById('result-action').click();
+  assert.equal(a.doc.getElementById('stage-no').textContent, '102');
 });

@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises';
-import { paths, remove, stars, valid } from '../dist/engine.js';
+import { paths, remove, searchKey, stars, valid } from '../dist/engine.js';
 
 // Deterministic offline authoring. Exhaustive state search rejects incomplete
 // candidates, proves minimum depth, and counts genuinely different openings.
@@ -11,7 +11,7 @@ export function analyze(board, n, moves, limit = 30000) {
   function search(b, left) {
     if (!stars(b)) return [];
     if (!left) return null;
-    const key = b.map(c => c ? `${c.v}${c.star ? 's' : ''}` : '_').join(',') + ':' + left;
+    const key = searchKey(b, left);
     if (memo.has(key)) return memo.get(key);
     if (++visited > limit) throw Error('budget');
     const options = paths(b,n).sort((a,z) => z.filter(i=>b[i].star).length-a.filter(i=>b[i].star).length);
